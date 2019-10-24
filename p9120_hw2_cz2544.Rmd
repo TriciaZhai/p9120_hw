@@ -77,8 +77,6 @@ for(i in 1:100) {
     cv[i] = tempfit$cv.crit
     y_hat_5[,i] = fitted(tempfit)
 }
-#use the optimal smoothing parameter to produce a final fit
-fit = smooth.spline(x, y, spar = spar[which(cv == min(cv))], cv=TRUE, all.knots = TRUE)
 
 # plot to check fit
 # plot(x_100, y_hat_5)
@@ -106,15 +104,12 @@ for(i in 1:50) {
 
 var_df = data.frame(cbind(x, var_1, var_2, var_3, var_4, var_5))
 
-var_df %>% pivot_longer(
+var_df_long = var_df %>% pivot_longer(
      var_1: var_5,
     names_to = "mdl_number", 
     values_to = "var")
 
-ggplot(var_df,aes(x=x, y=var_1, col = "red"))+geom_point()+geom_line()+
- +geom_point(y=var_2, col = "blue")+geom_line()+geom_point(y=var_3, col = "green")+geom_line()
-  ggplot(var_df,aes(x=x, y=var_1, col = "yellow"))+geom_point()+geom_line()+
-  ggplot(var_df,aes(x=x, y=var_1, col = "orange"))+geom_point()+geom_line()
+ggplot(var_df_long,aes(x=x, y=var, col = mdl_number ))+geom_line()
 ```
 
 
