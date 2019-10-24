@@ -1,0 +1,123 @@
+---
+title: "P9120_hw2_cz2544"
+author: "Chunxiao Zhai"
+date: "10/23/2019"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+set.seed(2544)
+library(splines)
+library(tidyverse)
+library(ggplot2)
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%")
+```
+
+3. (A simulation study).
+(a) Generate a vector x consisting of 50 points drawn at random from Uniform[0, 1].
+(b) Generate 100 training sets. Each training set consists of 50 pairs of (X, Y), with $(X_1, . . . , X_{50}) = \bf x$ and $Y_i = sin^3(2πX_i^3) + \epsilon_i$ for i = 1, . . . , 50, where $\epsilon_i$ is drawn from the standard normal distribution. 
+```{r dataset}
+x = runif(50)
+e = rnorm(50)
+y = (sin(2*pi*x^3))^3 + e
+
+# 100 training sets with same x and y with noise
+x_100 =  matrix(rep(x,100), nrow = 50, byrow = FALSE)
+e_100 = replicate(n = 100, 
+          expr = rnorm(n = 50), 
+          simplify = TRUE )
+y_100 = (sin(2*pi*x_100^3))^3 + e_100
+
+
+```
+
+For each training set, do following.
+i. Fit the data with methods/models listed below.
+ii. Compute the vector of fitted value $\bf \hat y$ obtained from each method/model.
+OLS with linear model: $\beta_0 + \beta_1X$.
+```{r OLS_lm, echo=FALSE}
+fit_1 = lm(y_100~x)
+summary(fit_1)
+y_hat_1 = fitted(fit_1)
+```
+
+OLS with cubic polynomial model: $\beta_0 + \beta_1X + \beta_2X^2 + \beta_3X^3$.
+```{r OLS_cu, echo=FALSE}
+fit_2 = lm(y_100 ~ x + I(x^2) + I(x^3))
+summary(fit_2)
+y_hat_2 = fitted(fit_2)
+```
+
+Cubic spline (or B-spline) with 2 knots at 0.33 and 0.66.
+```{r Bsp}
+#2 knots at 0.33 and 0.66
+fit_3 = lm(y_100 ~ bs(x,knots = c(0.33,0.66)))
+summary(fit_3)
+y_hat_3 = fitted(fit_3)
+```
+
+Natural cubic spline with 5 knots at 0.1, 0.3, 0.5, 0.7, 0.9.
+```{r Nsp}
+#5 knots at 0.1, 0.3, 0.5, 0.7, 0.9
+fit_4 = lm(y_100 ~ ns(x, ,knots = c(0.1, 0.3, 0.5, 0.7, 0.9)))
+summary(fit_4)
+y_hat_4 = fitted(fit_4)
+```
+
+Smoothing spline with tuning parameter chosen by GCV.
+```{r Ssp}
+#use cross-validation to choose best smoothing parameter
+cv = rep_len(NA, 100)
+y_hat_5 = matrix(NA, 50, 100)
+for(i in 1:100) {
+    tempfit = smooth.spline(x, y_100[,i], cv=TRUE)
+    cv[i] = tempfit$cv.crit
+    y_hat_5[,i] = fitted(tempfit)
+}
+#use the optimal smoothing parameter to produce a final fit
+fit = smooth.spline(x, y, spar = spar[which(cv == min(cv))], cv=TRUE, all.knots = TRUE)
+
+# plot to check fit
+# plot(x_100, y_hat_5)
+# plot(x,y_100[,2],col='deepskyblue4',xlab='x')
+```
+
+(c) Now for each method/model, you obtain a matrix of fitted values, with the i-th row and j-th column value $\hat y_{ij}$ representing the fitted value at X = xi from the j-th training set.
+
+(d) For each method/model, compute the pointwise variance of fitted values across the 100 training sets. This gives you a vector of pointwise variance. Plot the pointwise variance curves (against x) for each method/model. (Note: Your plot would be similar to Figure 5.3 of [ESL].)
+
+```{r pointwise_varaince}
+var_1 = rep(NA, 50)
+var_2 = rep(NA, 50)
+var_3 = rep(NA, 50)
+var_4 = rep(NA, 50)
+var_5 = rep(NA, 50)
+
+for(i in 1:50) {
+  var_1[i] = var(y_hat_1[i, ])
+  var_2[i] = var(y_hat_2[i, ])
+  var_3[i] = var(y_hat_3[i, ])
+  var_4[i] = var(y_hat_4[i, ])
+  var_5[i] = var(y_hat_5[i, ])
+}
+
+var_df = data.frame(cbind(x, var_1, var_2, var_3, var_4, var_5))
+
+var_df %>% pivot_longer(
+     var_1: var_5,
+    names_to = "mdl_number", 
+    values_to = "var")
+
+ggplot(var_df,aes(x=x, y=var_1, col = "red"))+geom_point()+geom_line()+
+ +geom_point(y=var_2, col = "blue")+geom_line()+geom_point(y=var_3, col = "green")+geom_line()
+  ggplot(var_df,aes(x=x, y=var_1, col = "yellow"))+geom_point()+geom_line()+
+  ggplot(var_df,aes(x=x, y=var_1, col = "orange"))+geom_point()+geom_line()
+```
+
+
+
+
+
