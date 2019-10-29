@@ -10,6 +10,9 @@ set.seed(2544)
 library(splines)
 library(tidyverse)
 library(ggplot2)
+library(MASS)
+library(boot)
+library(knitr)
 knitr::opts_chunk$set(
   fig.width = 6,
   fig.asp = .6,
@@ -19,6 +22,7 @@ knitr::opts_chunk$set(
 3. (A simulation study).
 (a) Generate a vector x consisting of 50 points drawn at random from Uniform[0, 1].
 (b) Generate 100 training sets. Each training set consists of 50 pairs of (X, Y), with $(X_1, . . . , X_{50}) = \bf x$ and $Y_i = sin^3(2πX_i^3) + \epsilon_i$ for i = 1, . . . , 50, where $\epsilon_i$ is drawn from the standard normal distribution. 
+
 ```{r dataset}
 x = runif(50)
 e = rnorm(50)
@@ -30,8 +34,6 @@ e_100 = replicate(n = 100,
           expr = rnorm(n = 50), 
           simplify = TRUE )
 y_100 = (sin(2*pi*x_100^3))^3 + e_100
-
-
 ```
 
 For each training set, do following.
@@ -112,7 +114,95 @@ var_df_long = var_df %>% pivot_longer(
 ggplot(var_df_long,aes(x=x, y=var, col = mdl_number ))+geom_line()
 ```
 
+4. The South African heart disease data on page 122 of the textbook. This data set can be found on the text book web site: https://web.stanford.edu/~hastie/ElemStatLearn/data.html
+Divide the dataset into a training set consisting of the first 300 observations, and a test set consisting of the remaining observations. 
+```{r heart_data}
+heart = read.table("SAheart.data", sep = ",", header = TRUE)
+index = as.numeric(row.names(heart)) # have to convert to numeric or -set will not work
+train = sample(index, 300)
+heart_train = heart[train, ]
+heart_test = heart[-train, ]
+```
+
+Apply logistic regression, LDA and QDA on the training set. For each method, report the test error and its standard error over the test set. Briefly discuss your results.
+```{r logistic}
+names(heart)
+logi.fit = glm(chd ~ sbp+tobacco+ldl+adiposity+famhist+typea+obesity+alcohol+age, 
+               data = heart_train, family = binomial)
+summary(logi.fit)
+# stepwise remove adiposity, alcohol, obesity, sbp  for large p value
+logi.fit = glm(chd ~ tobacco+ldl+famhist+typea+age, 
+               data = heart_train, family = binomial)
+summary(logi.fit)
+
+test.logi = predict(logi.fit, newdata = heart_test ,type = "response", se.fit = TRUE)
+test.logi.pred = ifelse(test.logi$fit > 0.5, 1, 0)
+test.error.logi = mean( heart_test$chd != test.logi.pred)  # 47/162 = 0.2530864
 
 
+# bootstrap for clasification CI
+clserr.logi.fun <- function(mdl, data, indices) {
+  d <- data[indices,] # allows boot to select sample
+  pred.p = predict(mdl, newdata = d ,type = "response", se.fit = TRUE)
+  pred.y = ifelse(pred.p$fit > 0.5, 1, 0)
+  return(mean( d$chd != pred.y))
+}
+result1 = 
+  boot(data=heart_test, statistic = clserr.logi.fun, R=1000, mdl= logi.fit)
+# view result
+# plot(result1)
+result1  #std. error = 0.03476296
+boot.ci(result1, type=c("basic","percent","bca"))
+```
 
+
+```{r LDA}
+lda.fit = lda(chd ~., data = heart_train )
+lda.fit
+
+test.lda = predict(lda.fit, newdata = heart_test)
+test.lda.pred = test.lda$class
+test.error.lda = mean( heart_test$chd != test.lda.pred)  # 47/162
+
+# bootstrap for classification error rate s.e.
+clserr.da.fun <- function(mdl, data, indices) {
+  d <- data[indices,] # allows boot to select sample
+  pred = predict(mdl, newdata = d )$class
+  return(mean( d$chd != pred))
+}
+result2 = 
+  boot(data=heart_test, statistic = clserr.da.fun, R=1000, mdl= lda.fit)
+# view result
+# plot(result2)
+result2  #std. error = 0.03418899
+boot.ci(result2, type=c("basic","percent","bca"))
+```
+
+
+```{r QDA}
+qda.fit = qda(chd ~., data = heart_train )
+qda.fit
+
+test.qda = predict(qda.fit, newdata = heart_test)
+test.qda.pred = test.qda$class
+test.error.qda = mean( heart_test$chd != test.qda.pred)  # 51/162
+
+# bootstrap for classification error rate s.e.
+
+result3 = 
+  boot(data=heart_test, statistic = clserr.da.fun, R=1000, mdl= qda.fit)
+# view result
+# plot(result3)
+result3  #std. error = 0.03511872
+boot.ci(result3, type=c("basic","percent","bca"))
+```
+
+```{r tabble_results}
+result = c(result1$t0, result2$t0, result2$t0)
+result.se = c(sd(result1$t),sd(result2$t),sd(result3$t))
+result.mtx = matrix(cbind(result,result.se), ncol = 2)
+row.names(result.mtx) = c("logistic regression", "lda", "qda")
+colnames(result.mtx) = c("cliassification error rate", "cliassification error rate SE")
+kable(result.mtx, row.names = TRUE, col.names = TRUE)
+```
 
