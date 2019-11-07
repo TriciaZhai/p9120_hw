@@ -1,0 +1,201 @@
+---
+title: "P9120_hw3_cz2544"
+author: "Chunxiao Zhai"
+date: "10/29/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+set.seed(2544)
+library(splines)
+library(tidyverse)
+library(boot)
+library(e1071)
+library(ada)
+library(caret)
+library(knitr)
+knitr::opts_chunk$set(
+  size = 9,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%")
+```
+
+```{r plot function}
+# decision boundry plot
+decisionplot <- function(model, data, class = NULL, predict_type = "class",
+  resolution = 100, showgrid = TRUE, ...) {
+  if(!is.null(class)) cl <- data[,class] else cl <- 1
+  data <- data[,1:2]
+  k <- length(unique(cl))
+
+plot(data, col = as.integer(cl)+1L, pch = as.integer(cl)+1L, ...)
+
+# make grid
+r <- sapply(data, range, na.rm = TRUE)
+xs <- seq(r[1,1], r[2,1], length.out = resolution)
+ys <- seq(r[1,2], r[2,2], length.out = resolution)
+g <- cbind(rep(xs, each=resolution), rep(ys, time = resolution))
+colnames(g) <- colnames(r)
+g <- as.data.frame(g)
+
+### guess how to get class labels from predict
+### (unfortunately not very consistent between models)
+p <- predict(model, g, type = predict_type)
+if(is.list(p)) p <- p$class
+p <- as.factor(p)
+
+if(showgrid) points(g, col = as.integer(p)+1L, pch = ".")
+
+z <- matrix(as.integer(p), nrow = resolution, byrow = TRUE)
+contour(xs, ys, z, add = TRUE, drawlabels = FALSE, lwd = 2, levels = (1:(k-1))+.5)
+invisible(z)
+}
+```
+
+
+2. Get the “Ripley dataset” (synth.tr) from the website. http://www.stats.ox.ac.uk/pub/PRNN/. The dataset contains two predictors and a binary outcome.
+(a) Construct a linear support vector classifier.
+
+```{r svm1}
+train = read.table("synth.tr", header = TRUE)
+test = read.table("synth.te", header = TRUE)
+train$yc = as.factor(train$yc)
+test$yc = as.factor(test$yc)
+svm1 = svm( yc~ ., data = train, type="C-classification", kernel="linear")
+# visualize:
+ggplot(data = train,aes(x = xs, y = ys, color = yc)) +
+  geom_point()
+
+#accuracy
+pred_test = predict(svm1, test)
+mean(pred_test==test$yc)
+
+#plot
+plot(svm1,train)
+decisionplot(svm1,train, class = "yc", main = "linear svm")
+
+# tune model
+tune1 = tune.svm(x = train[,-3], y = train$yc, 
+                 type = "C-classification", kernel = "linear",
+                 cost  = 10^(-1:2),gamma = c(0.1,1,10), coef0 =c(0.1,1,10))
+
+print(tune1)
+# update model
+svm1 = svm( yc~ ., type="C-classification",kernel = "linear",data = train,
+            cost = tune1$best.parameters$cost,
+            gamma =  tune1$best.parameters$gamma,
+            coef0 =  tune1$best.parameters$coef0,)
+
+
+# save best svm linear
+best1 = best.svm(x = train[,-3], y = train$yc, 
+                 type = "C-classification", kernel = "linear",
+                 cost  = 10^(-1:2),gamma = c(0.1,1,10), coef0 =c(0.1,1,10))
+
+pred_train = predict(best1, train[,-3])
+mean(pred_train==train$yc) # 0.86
+
+pred_test = predict(best1, test[,-3])
+mean(pred_test==test$yc) # 0.891
+# test error
+1-mean(pred_test==test$yc) # 0.109
+# confusion matrix 
+caret::confusionMatrix(as.factor(pred_test), test$yc, positive = NULL,
+  dnn = c("Prediction", "Reference"), prevalence = NULL)$table
+
+# standard error of test error (bootstrap)
+clserr.fun <- function(mdl, data, indices) {
+  d <- data[indices,] # allows boot to select sample
+  pred.p = predict(mdl, newdata = d)
+  return(mean( d$yc != pred.p))
+}
+result1 = 
+  boot(data= test, statistic = clserr.fun, R=1000, mdl= svm1)
+# view result
+plot(result1)
+result1  #std. error = 0.009982276
+boot.ci(result1, type=c("basic","percent","bca"))
+```
+
+(b) Construct a support vector classifier with Radial kernel. 
+```{r svm2}
+svm2 = svm( yc~ ., type="C-classification",kernel ="radial",data = train)
+
+#accuracy
+pred_test = predict(svm2, test)
+mean(pred_test==test$yc)
+
+#plot
+plot(svm2,train)
+decisionplot(svm2,train, class = "yc", main = "radial kernel svm 1")
+# tune model
+tune2 = tune.svm(x = train[,-3], y = train$yc, 
+                 type = "C-classification", kernel = "radial", degree = c(1,2,3),
+                 cost  = 10^(-1:2),gamma = c(0.1,1,10), coef0 =c(0.1,1,10))
+
+print(tune2)
+
+# update model and plot
+svm2 = svm( yc~ ., type="C-classification",kernel ="radial",data = train,
+            cost = tune2$best.parameters$cost,
+            gamma =  tune2$best.parameters$gamma,
+            coef0 =  tune2$best.parameters$coef0,
+            degree =  tune2$best.parameters$degree)
+plot(svm2,train)
+decisionplot(svm2,train, class = "yc", main = "radial kernel svm 2")
+# save best svm linear
+best2 = best.svm(x = train[,-3], y = train$yc, 
+                 type = "C-classification", kernel = "radial", degree = c(1,2,3),
+                 cost  = 10^(-1:2),gamma = c(0.1,1,10), coef0 =c(0.1,1,10))
+pred_train = predict(best2, train[,-3])
+mean(pred_train==train$yc) # 0.904
+
+pred_test = predict(best2, test[,-3])
+mean(pred_test==test$yc) # 0.902
+# test error
+1-mean(pred_test==test$yc) # 0.098
+# confusion matrix 
+caret::confusionMatrix(pred_test, test$yc, positive = NULL,
+  dnn = c("Prediction", "Reference"), prevalence = NULL)$table
+
+# standard error of test error (bootstrap)
+result2 = 
+  boot(data= test, statistic = clserr.fun, R=1000, mdl= svm2)
+# view result
+plot(result2)
+result2  #std. error = 0.008852503
+boot.ci(result2, type=c("basic","percent","bca"))
+```
+
+(c) Construct a classifier using AdaBoost algorithm (with 50 boosting iterations)
+with decision stumps as weak learners.
+```{r boost 1}
+fit = ada(yc~., train, iter=50, 
+          # control tree depth to avoid overfit
+          rpart.control(maxdepth=1)) 
+plot(fit)
+# decision boundry
+decisionplot(fit, train, class = "yc", main = "adaboost 1")
+# calculate misclassification rate 
+pred_test = as.factor(predict(fit, test[,-3]))
+# test error
+mean(pred_test !=test$yc) #  0.123
+# confusion matrix 
+caret::confusionMatrix(pred_test, test$yc, positive = NULL,
+  dnn = c("Prediction", "Reference"), prevalence = NULL)$table
+
+# standard error of test error (bootstrap)
+result3 = boot(data= test, statistic = clserr.fun, R=100, mdl= fit)
+# view result
+plot(result3)
+result3  #std. error = 0.009579617
+# boot.ci(result3, type=c("basic","percent","bca"))
+```
+
+
+Select the tuning parameter involved in SVM models appropriately.
+For each method, compute the test error and its standard error on the test set (synth.te).
+Provide a simple graphical visualization of the produced classification models (i.e.
+something similar to Figure 2.2 in the textbook [ESL]) and discuss your results.
+
